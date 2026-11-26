@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Misi Bilik Rahsia: CPSP</title>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+/* =====================================================================
+   1) CONFIG FIREBASE
+   ===================================================================== */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyD1ft_vHJlCV0U-2kxGtoYtMJ8liagtN6w",
+  authDomain: "escape-room-c1df5.firebaseapp.com",
+  databaseURL: "https://escape-room-c1df5-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "escape-room-c1df5",
+  storageBucket: "escape-room-c1df5.firebasestorage.app",
+  messagingSenderId: "326147418018",
+  appId: "1:326147418018:web:35a2d7c732bb7c5e09b4fb"
+};
+
+/* =====================================================================
+   2) KATA LALUAN
+   ===================================================================== */
+const ADMIN_PASSWORD = "admin2026";
+const GROUPS = [
+  { name: "Kumpulan 1", password: "HARIMAU1" },
+  { name: "Kumpulan 2", password: "GAJAH2" },
+  { name: "Kumpulan 3", password: "HELANG3" },
+  { name: "Kumpulan 4", password: "BADAK4" },
+  { name: "Kumpulan 5", password: "BURUNG5" },
+  { name: "Kumpulan 6", password: "SERIGALA6" }
+];
+
+/* =====================================================================
+   3) TETAPAN AWAL (admin boleh edit dalam tab "Tetapan")
+   ===================================================================== */
+const DEFAULT_CONFIG = {
+  title: "Misi Bilik Rahsia",
+  timeLimitMin: 45,
+  cluePenaltySec: 0,
+  finalWord: "IKATAN",
+  stages: [
+    { key:"gen", profile:"Generator", icon:"🔍", room:"Bilik Penemuan",
+      task:"Baca kes anda. Kenal pasti sekurang-kurangnya 3 MASALAH atau PELUANG yang anda nampak. Fikir dari sudut pandang orang yang berbeza.",
+      fields:[{id:"items", type:"list", n:5, min:3, label:"Masalah / peluang yang dikenal pasti"}],
+      clues:["Lihat dari sudut pandang orang lain: pelajar, pekerja, pensyarah, pelawat.",
+             "Tanya: apa yang mengecewakan? apa yang membazir? apa yang boleh jadi lebih baik?",
+             "Masalah juga boleh jadi peluang. Apa yang boleh diperbaiki atau dicipta?"] },
+    { key:"con", profile:"Conceptualizer", icon:"🧠", room:"Bilik Fakta",
+      task:"Asingkan FAKTA daripada ANDAIAN, cari punca sebenar, kemudian tulis satu pernyataan masalah yang jelas.",
+      fields:[{id:"fa", type:"factcheck", label:"Tandakan setiap kenyataan: Fakta atau Andaian?"},
+              {id:"root", type:"textarea", label:"Apakah punca SEBENAR masalah ini? (tanya 'Kenapa?' beberapa kali)"},
+              {id:"hmw", type:"text", prefix:"Bagaimana mungkin kita…", label:"Pernyataan masalah"}],
+      clues:["Fakta boleh dibuktikan dengan data atau pemerhatian. Andaian hanyalah tekaan atau pendapat.",
+             "Tanya 'Kenapa?' sekurang-kurangnya 3 kali untuk sampai ke punca sebenar.",
+             "Pernyataan 'Bagaimana mungkin kita…' jangan terus sebut penyelesaian. Contoh: '…mengurangkan masa menunggu di kantin?'"] },
+    { key:"opt", profile:"Optimizer", icon:"⚖️", room:"Bilik Idea",
+      task:"Jana sekurang-kurangnya 5 IDEA penyelesaian (kuantiti dulu!). Kemudian pilih SATU idea terbaik dan nilai ia.",
+      fields:[{id:"ideas", type:"list", n:6, min:5, label:"Idea penyelesaian"},
+              {id:"best", type:"pick", from:"ideas", label:"Pilih idea terbaik"},
+              {id:"why", type:"textarea", label:"Kenapa idea ini? Nilai dari segi KOS, MASA dan KESAN"}],
+      clues:["Kuantiti dulu, kualiti kemudian. Jangan nilai idea semasa menjana.",
+             "Cuba idea 'gila' dulu, kemudian ubah jadi praktikal.",
+             "Gabungkan dua idea lemah untuk jadi satu idea kuat."] },
+    { key:"imp", profile:"Implementer", icon:"🚀", room:"Bilik Tindakan",
+      task:"Jadikan idea anda kenyataan: buat pelan tindakan 3 langkah, kenal pasti halangan, dan tulis pitch untuk meyakinkan pihak atasan.",
+      fields:[{id:"steps", type:"list", n:3, min:3, label:"Pelan tindakan (siapa · buat apa · bila)"},
+              {id:"block", type:"text", label:"Halangan terbesar & cara mengatasinya"},
+              {id:"pitch", type:"textarea", label:"Pitch 1 ayat: masalah → idea → manfaat"}],
+      clues:["Setiap langkah mesti jawab: SIAPA buat APA, BILA?",
+             "Fikir siapa yang mungkin tak setuju, dan apa yang akan meyakinkan mereka.",
+             "Pitch yang baik: 'Kami selesaikan [masalah] dengan [idea] supaya [manfaat].'"] }
+  ],
+  cases: [
+    { title:"Sampah Plastik di Kampus", story:"Kawasan kafeteria dan dewan kuliah dipenuhi bekas plastik selepas waktu makan. Pihak pengurusan mahu kampus lebih bersih dan mesra alam.",
+      statements:[{s:"Tong kitar semula hanya ada di 2 lokasi dalam kampus.",t:"F"},{s:"Pelajar memang malas mengitar semula.",t:"A"},{s:"Kafeteria menggunakan kira-kira 800 bekas polistirena sehari.",t:"F"},{s:"Kempen poster memang tidak berkesan.",t:"A"}] },
+    { title:"Kantin Sesak Waktu Rehat", story:"Setiap tengah hari, barisan di kantin terlalu panjang. Ramai pelajar lewat ke kelas petang atau tidak sempat makan.",
+      statements:[{s:"Waktu rehat semua fakulti sama, 12:30 hingga 1:30 petang.",t:"F"},{s:"Pekerja kantin tidak cekap.",t:"A"},{s:"Hanya 3 daripada 6 kaunter dibuka.",t:"F"},{s:"Pelajar tidak suka membawa bekal.",t:"A"}] },
+    { title:"Pelajar Lewat ke Kelas Pagi", story:"Kehadiran kelas jam 8 pagi rendah dan ramai pelajar masuk lewat. Pensyarah risau prestasi pelajar terjejas.",
+      statements:[{s:"Bas kampus pertama bertolak jam 7:45 pagi.",t:"F"},{s:"Pelajar tidur lewat kerana bermain game.",t:"A"},{s:"Kelas pertama bermula jam 8:00 pagi.",t:"F"},{s:"Pensyarah tidak kisah pelajar lewat.",t:"A"}] },
+    { title:"Parking Sentiasa Penuh", story:"Pelajar yang memandu sukar mendapat tempat letak kereta. Ada yang meletak kereta di tepi jalan dan disaman.",
+      statements:[{s:"Terdapat 300 petak parking untuk kira-kira 1,200 kereta pelajar.",t:"F"},{s:"Ramai pelajar memandu walaupun tinggal dekat.",t:"A"},{s:"Parking hampir kosong pada hujung minggu.",t:"F"},{s:"Mengenakan bayaran parking pasti menyelesaikan masalah.",t:"A"}] },
+    { title:"Banjir Kilat di Taman Perumahan", story:"Sebuah taman perumahan berhampiran kampus sering dilanda banjir kilat selepas hujan lebat. Penduduk dan pelajar yang menyewa terjejas.",
+      statements:[{s:"Longkang utama tersumbat dua kali tahun ini.",t:"F"},{s:"Penduduk suka membuang sampah ke dalam longkang.",t:"A"},{s:"Banjir berlaku selepas hujan lebat lebih daripada 1 jam.",t:"F"},{s:"Majlis tempatan tidak mahu membantu.",t:"A"}] },
+    { title:"Pelajar Baru Sukar Menyesuaikan Diri", story:"Ramai pelajar tahun satu rasa terasing, kurang kawan dan tidak tahu mana nak minta bantuan. Ada yang mempertimbangkan untuk berhenti.",
+      statements:[{s:"Kira-kira 40% pelajar tahun satu tinggal di luar kampus.",t:"F"},{s:"Pelajar baru memang pemalu.",t:"A"},{s:"Minggu orientasi hanya berlangsung 3 hari.",t:"F"},{s:"Pelajar senior tidak mahu membantu junior.",t:"A"}] }
+  ]
+};
+</script>
+<style>
+:root{--bg:#0e0d0b;--panel:#1a1814;--panel2:#221f19;--line:#3a342a;--gold:#e0b84f;--txt:#ece6d8;--dim:#9a9180;--ok:#5fc27a;--bad:#e05a4f;--blue:#4fa3e0}
+*{box-sizing:border-box}
+html{background:#0e0d0b}
+.grid .stg{font-size:10px;padding:8px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grid .stg b{font-size:16px}
+body.hasbn .wrap{padding-top:70px}
+body{margin:0;background:radial-gradient(circle at 50% 0,#2a2418 0,var(--bg) 60%) fixed;color:var(--txt);font-family:Inter,sans-serif;min-height:100vh;font-size:16px}
+h1,h2,h3{margin:0}
+.ttl{font-family:Anton,sans-serif;letter-spacing:.5px;font-weight:400}
+.mono{font-family:ui-monospace,monospace}
+.wrap{max-width:1100px;margin:0 auto;padding:18px 14px 80px}
+header{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:#26221b;color:var(--txt);padding:10px 14px;font-weight:600}
+button:hover{border-color:var(--gold)}
+button.pri{background:var(--gold);color:#1a1408;border-color:var(--gold)}
+button.ok{background:var(--ok);border-color:var(--ok);color:#06210f}
+button.red{background:var(--bad);border-color:var(--bad);color:#fff}
+button.ghost{background:transparent}
+button.sm{padding:6px 10px;font-size:13px}
+button:disabled{opacity:.4;cursor:not-allowed}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;position:relative;overflow:hidden}
+.stripe{position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--c)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px;margin-top:14px}
+.small{font-size:13px;color:var(--dim)}
+.tag{display:inline-block;padding:3px 9px;border-radius:99px;font-size:12px;font-weight:700;background:#2c271f;white-space:nowrap}
+.tag.win{background:var(--ok);color:#06210f}.tag.bad{background:var(--bad);color:#fff}.tag.go{background:var(--gold);color:#1a1408}.tag.blue{background:var(--blue);color:#06121f}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.spread{justify-content:space-between}
+.col{display:flex;flex-direction:column;gap:8px}
+.timer{font-family:Anton,sans-serif;font-size:32px;color:var(--gold)}
+.low{color:var(--bad)!important;animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.4}}
+.stages{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}
+.stg{padding:10px 6px;text-align:center;border-radius:12px;border:1px solid var(--line);background:var(--panel);font-size:12px}
+.stg b{display:block;font-size:20px}
+.stg.done{border-color:var(--ok);color:var(--ok)}
+.stg.cur{border-color:var(--gold);box-shadow:0 0 0 2px #e0b84f44;color:var(--gold)}
+input[type=text],input[type=password],textarea,select{width:100%;font:inherit;padding:11px 13px;border-radius:10px;border:1px solid var(--line);background:#0f0e0c;color:var(--txt)}
+textarea{min-height:90px;resize:vertical}
+textarea.json{min-height:420px;font-family:ui-monospace,monospace;font-size:12px}
+label.f{display:block;font-weight:700;margin:16px 0 8px}
+.li{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.li span{width:26px;color:var(--dim);font-weight:700;text-align:right}
+.fa{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:6px;background:var(--panel2)}
+.fa .opts{display:flex;gap:6px;flex-shrink:0}
+.seg input{display:none}
+.seg span{display:inline-block;padding:7px 12px;border-radius:8px;border:1px solid var(--line);cursor:pointer;font-weight:700;font-size:13px}
+.seg input:checked+span{background:var(--gold);color:#1a1408;border-color:var(--gold)}
+.pick{display:flex;gap:6px;flex-wrap:wrap}
+.msg{min-height:22px;margin-top:10px;font-weight:600}
+.msg.ok{color:var(--ok)}.msg.bad{color:var(--bad)}
+.case{border-left:4px solid var(--gold);background:linear-gradient(90deg,#2a2418,var(--panel))}
+.clue{padding:10px 12px;border-left:3px solid var(--blue);background:#17202a;border-radius:6px;margin-top:8px}
+.clue.new{animation:flash 1.2s 3}
+@keyframes flash{50%{background:#24435f}}
+.review{padding:12px;border-radius:10px;background:var(--panel2);margin-top:10px}
+.code{display:flex;gap:8px;justify-content:center;margin:12px 0}
+.code span{width:50px;height:62px;border-radius:12px;border:2px dashed var(--line);display:grid;place-items:center;font-size:30px;font-family:Anton,sans-serif;color:var(--gold)}
+.code span.got{border-style:solid;border-color:var(--gold)}
+.dial{display:flex;gap:8px;justify-content:center}
+.dial input{width:56px;height:68px;text-align:center;font-size:32px;font-family:Anton,sans-serif;padding:0}
+table{width:100%;border-collapse:collapse}
+th,td{padding:10px 8px;border-bottom:1px solid var(--line);text-align:left;font-size:14px;vertical-align:top}
+th{color:var(--dim);font-weight:600}
+.board td{font-size:19px;padding:13px 10px}
+.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+.center{text-align:center}
+.big{font-size:60px;margin:0}
+.login{max-width:400px;margin:10vh auto 0}
+.tabs{display:flex;gap:6px;margin:14px 0 0;flex-wrap:wrap}
+.tabs button.on{background:var(--gold);color:#1a1408;border-color:var(--gold)}
+.overlay{position:fixed;inset:0;background:#000d;display:grid;place-items:center;z-index:20;text-align:center;padding:20px}
+.overlay .n{font-size:150px;font-family:Anton,sans-serif;color:var(--gold);line-height:1}
+.banner{position:fixed;left:0;right:0;top:0;z-index:15;background:var(--gold);color:#1a1408;padding:14px 16px;text-align:center;font-weight:800;font-size:20px;animation:drop .4s;box-shadow:0 6px 30px #0008}
+@keyframes drop{from{transform:translateY(-100%)}}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--bad);margin-right:6px}
+.dot.on{background:var(--ok)}
+.letters{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:14px 0}
+.letters span{width:74px;height:86px;border-radius:14px;display:grid;place-items:center;font-family:Anton,sans-serif;font-size:50px;color:#1a1408}
+.hand{animation:pulse 1s infinite}
+.modal{position:fixed;inset:0;background:#000b;display:grid;place-items:center;padding:16px;z-index:30}
+.modal .card{max-width:440px;width:100%}
+.ans{white-space:pre-wrap;line-height:1.5}
+.ans ol{margin:4px 0 8px 20px;padding:0}
+.stars{display:flex;gap:4px}
+.stars label input{display:none}
+.stars label span{font-size:24px;cursor:pointer;filter:grayscale(1);opacity:.5}
+.stars label input:checked~span,.stars label.on span{filter:none;opacity:1}
+.hidden{display:none!important}
+@media(max-width:600px){.timer{font-size:26px}.stg{font-size:10px}.stg b{font-size:17px}.board td{font-size:15px}.fa{flex-direction:column;align-items:flex-start}}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<div id="ov"></div>
+<div id="bn"></div>
+<div class="modal hidden" id="modal"><div class="card" id="modalBox"></div></div>
+
+<script>
+const COLORS=["#e05a4f","#e0b84f","#5fc27a","#4fa3e0","#b07be0","#e07bb8","#4fd0c4","#e0904f"];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const norm=s=>String(s??"").trim().toLowerCase().replace(/\s+/g," ");
+const fmt=sec=>{sec=Math.max(0,Math.ceil(sec));return String(Math.floor(sec/60)).padStart(2,"0")+":"+String(sec%60).padStart(2,"0");};
+const color=i=>COLORS[i%COLORS.length];
+const arr=x=>Array.isArray(x)?x.filter(v=>v!=null):(x&&typeof x==="object"?Object.keys(x).sort((a,b)=>(+a)-(+b)).map(k=>x[k]):[]);
+const vals=x=>x&&typeof x==="object"?Object.keys(x).sort().map(k=>x[k]):[];
+const SKEY="cpsp_session";
+const NS=4; // bilangan bilik
+
+let D={}, ROOT=null, offset=0, connected=false;
+let session=(()=>{try{return JSON.parse(localStorage.getItem(SKEY))}catch(e){return null}})();
+let tab="dash", lastSig="", seen={clues:-1,rev:"",wakil:0,final:false};
+
+if(FIREBASE_CONFIG.apiKey.includes("PASTE")){
+  document.getElementById("app").innerHTML=`<div class="card login"><h2>⚙️ Belum setup Firebase</h2></div>`;
+  throw new Error("Firebase not configured");
+}
+firebase.initializeApp(FIREBASE_CONFIG);
+const db=firebase.database();
+ROOT=db.ref("cpsp");
+
+/* ---------- Data helpers ---------- */
+const now=()=>Date.now()+offset;
+const cfg=()=>D.config||DEFAULT_CONFIG;
+const stages=()=>arr(cfg().stages);
+const cases=()=>arr(cfg().cases);
+const game=()=>D.game||{state:"waiting"};
+const teams=()=>arr(D.teams);
+const letterOf=i=>{const w=String(cfg().finalWord||"").toUpperCase(); return w?w[i%w.length]:"?";};
+function gameElapsed(){
+  const g=game(); if(!g.startAt||g.state==="waiting") return 0;
+  const ref=g.state==="paused"?g.pausedAt:g.state==="ended"?g.endedAt:now();
+  return Math.max(0,(ref-g.startAt-(g.pausedTotal||0))/1000);
+}
+function pendWait(t){
+  if(!t.pendingAt) return 0; const g=game();
+  const ref=g.state==="paused"?g.pausedAt:g.state==="ended"?g.endedAt:now();
+  return Math.max(0,(ref-t.pendingAt-((g.pausedTotal||0)-(t.pendingPT||0)))/1000);
+}
+function teamTime(t){ return t.finishSec!=null?t.finishSec:gameElapsed()+(t.penalty||0)-(t.bonus||0)-(t.waitSec||0)-pendWait(t); }
+function remaining(t){ return cfg().timeLimitMin*60-teamTime(t); }
+function starsOf(t){ const s=t.stars||{}; return [0,1,2,3].map(k=>+s["s"+k]||0); }
+function points(t){
+  const st=starsOf(t).reduce((a,b)=>a+b,0);
+  const timeB=t.status==="escaped"?Math.floor(Math.max(0,cfg().timeLimitMin*60-t.finishSec)/60)*2:0;
+  return st*10+(t.stage||0)*20+(t.bonusPts||0)+(t.status==="escaped"?30:0)+timeB;
+}
+function profileOf(t){
+  const s=starsOf(t); const mx=Math.max(...s); if(!mx) return null;
+  const k=s.indexOf(mx); const S=stages()[k]; return S?S.icon+" "+S.profile:null;
+}
+function makeTeams(){
+  const C=cases();
+  return GROUPS.map((g,i)=>({name:g.name,caseIdx:i%Math.max(1,C.length),code:Array.from({length:NS},()=>Math.floor(Math.random()*10)),
+    stage:0,status:"playing",penalty:0,bonus:0,bonusPts:0,clueReq:false}));
+}
+function upd(i,obj){ return ROOT.child("teams/"+i).update(obj); }
+function rank(){
+  return teams().map((t,i)=>({t,i})).sort((a,b)=>points(b.t)-points(a.t)||teamTime(a.t)-teamTime(b.t));
+}
+function badge(t){
+  const g=game().state;
+  if(t.status==="escaped") return '<span class="tag win">BERJAYA KELUAR</span>';
+  if(t.status==="timeout") return '<span class="tag bad">Masa tamat</span>';
+  if(g==="waiting") return '<span class="tag">Menunggu</span>';
+  if(g==="paused") return '<span class="tag">Dijeda</span>';
+  if(g==="ended") return '<span class="tag bad">Tamat</span>';
+  return '<span class="tag go">Sedang main</span>';
+}
+function stageChips(t,i){
+  return `<div class="stages">${stages().map((S,k)=>{
+    const done=k<t.stage, cur=k===t.stage&&t.status==="playing";
+    return `<div class="stg ${done?'done':''} ${cur?'cur':''}"><b>${done?arr(t.code)[k]:S.icon}</b>${esc(S.profile)}</div>`;}).join("")}</div>`;
+}
+
+/* ---------- Render control (preserve typed input) ---------- */
+function sig(){
+  if(!session) return "login";
+  if(session.role==="board") return "board|"+JSON.stringify([D.game,D.teams,D.config&&D.config.finalWord]);
+  if(session.role==="admin") return "admin|"+tab+"|"+(tab==="cfg"?"":JSON.stringify([D.game,D.teams,D.config]));
+  return "team|"+JSON.stringify([D.game,(D.teams||{})[session.g],D.config]);
+}
+function snap(){
+  const m={}; document.querySelectorAll("[data-keep]").forEach(e=>{m[e.dataset.keep]=(e.type==="radio"||e.type==="checkbox")?e.checked:e.value;});
+  const a=document.activeElement; return {m,act:a&&a.dataset?a.dataset.keep:null,s:a&&a.selectionStart,e:a&&a.selectionEnd,y:window.scrollY};
+}
+function restore(S){
+  document.querySelectorAll("[data-keep]").forEach(e=>{const v=S.m[e.dataset.keep]; if(v===undefined) return; if(e.type==="radio"||e.type==="checkbox") e.checked=v; else e.value=v;});
+  if(S.act){const e=document.querySelector(`[data-keep="${CSS.escape(S.act)}"]`); if(e){e.focus(); try{e.setSelectionRange(S.s,S.e);}catch(x){}}}
+  window.scrollTo(0,S.y);
+}
+function maybeRender(force){ const s=sig(); if(force||s!==lastSig){ lastSig=s; const S=snap(); render(); if(!force) restore(S); notify(); } }
+function render(){
+  if(!session) return login();
+  if(session.role==="admin") return admin();
+  if(session.role==="board") return board();
+  return team();
+}
+function setSession(s){ session=s; try{ s?localStorage.setItem(SKEY,JSON.stringify(s)):localStorage.removeItem(SKEY);}catch(e){} maybeRender(true); }
+function logout(){ setSession(null); }
+
+/* ---------- Sound ---------- */
+let AC=null;
+function beep(f=880,d=.15,n=1){ try{ AC=AC||new (window.AudioContext||window.webkitAudioContext)();
+  for(let k=0;k<n;k++){const o=AC.createOscillator(),g=AC.createGain();o.frequency.value=f;o.connect(g);g.connect(AC.destination);
+  const t0=AC.currentTime+k*(d+.08);g.gain.setValueAtTime(.18,t0);g.gain.exponentialRampToValueAtTime(.001,t0+d);o.start(t0);o.stop(t0+d);} }catch(e){} }
+function notify(){
+  if(!session||session.role!=="team") return;
+  const t=teams()[session.g]; if(!t) return;
+  const nc=vals(t.clues).length;
+  if(seen.clues>=0&&nc>seen.clues) beep(1046,.12,3);
+  seen.clues=nc;
+  const r=JSON.stringify(t.review||{}); if(seen.rev&&r!==seen.rev) beep(660,.2,2); seen.rev=r;
+  const w=(game().wakil||{}).at||0; if(seen.wakil&&w>seen.wakil) beep(520,.3,3); seen.wakil=w;
+}
+
+/* ---------- Login ---------- */
+function login(){
+  $("#app").innerHTML=`<div class="login">
+    <h1 class="center ttl" style="color:var(--gold);font-size:44px">🔐 ${esc(cfg().title)}</h1>
+    <p class="center small">Escape Room · Creative Problem Solving (CPSP)</p>
+    <form class="card" onsubmit="event.preventDefault();doLogin()">
+      <input type="password" id="pw" placeholder="Kata laluan kumpulan" autocomplete="off" autofocus>
+      <div class="msg bad" id="msg"></div>
+      <button class="pri" style="width:100%">Masuk</button>
+    </form>
+    <p class="center"><button class="ghost sm" onclick="setSession({role:'board'})">📺 Papan kedudukan</button></p>
+  </div>`;
+}
+function doLogin(){
+  const v=$("#pw").value.trim();
+  if(v===ADMIN_PASSWORD){
+    const up={}; if(!D.config) up.config=DEFAULT_CONFIG;
+    if(!D.teams){ up.teams=makeTeams(); up.game={state:"waiting"}; }
+    if(Object.keys(up).length) ROOT.update(up);
+    return setSession({role:"admin"});
+  }
+  const i=GROUPS.findIndex(g=>norm(g.password)===norm(v));
+  if(i<0){ $("#msg").textContent="❌ Kata laluan salah"; return; }
+  beep(700,.05); setSession({role:"team",g:i});
+}
+
+/* ---------- Form fields ---------- */
+function draftKey(s){ return `cpsp_draft_${session.g}_${s}`; }
+function getDraft(s){ try{return JSON.parse(localStorage.getItem(draftKey(s)))||{};}catch(e){return {};} }
+function saveDraft(s){ try{ localStorage.setItem(draftKey(s),JSON.stringify(snap().m)); }catch(e){} }
+function fieldsHTML(s,C,prev){
+  const S=stages()[s], dr=getDraft(s); prev=prev||{};
+  const val=(k,fb)=>esc(dr[k]!==undefined?dr[k]:(fb??""));
+  return arr(S.fields).map(F=>{
+    const id=`s${s}_${F.id}`;
+    if(F.type==="list"){
+      const pv=arr(prev[F.id]);
+      return `<label class="f">${esc(F.label)} <span class="small">(min ${F.min})</span></label>`+
+        Array.from({length:F.n},(_,k)=>`<div class="li"><span>${k+1}.</span><input type="text" data-keep="${id}_${k}" value="${val(id+"_"+k,pv[k])}"></div>`).join("");
+    }
+    if(F.type==="factcheck"){
+      const pv=prev[F.id]||{};
+      return `<label class="f">${esc(F.label)}</label>`+arr(C.statements).map((st,k)=>{
+        const nm=`${id}_${k}`, chk=v=>dr[nm+"_"+v]!==undefined?(dr[nm+"_"+v]?"checked":""):(pv[k]===v?"checked":"");
+        return `<div class="fa"><div>${esc(st.s)}</div><div class="opts seg">
+          <label><input type="radio" name="${nm}" value="F" data-keep="${nm}_F" ${chk("F")}><span>Fakta</span></label>
+          <label><input type="radio" name="${nm}" value="A" data-keep="${nm}_A" ${chk("A")}><span>Andaian</span></label></div></div>`;}).join("");
+    }
+    if(F.type==="pick"){
+      const src=arr(S.fields).find(x=>x.id===F.from), nm=id;
+      return `<label class="f">${esc(F.label)}</label><div class="pick seg">`+Array.from({length:src.n},(_,k)=>{
+        const c=dr[nm+"_"+k]!==undefined?(dr[nm+"_"+k]?"checked":""):(+prev[F.id]===k?"checked":"");
+        return `<label><input type="radio" name="${nm}" value="${k}" data-keep="${nm}_${k}" ${c}><span>Idea ${k+1}</span></label>`;}).join("")+`</div>`;
+    }
+    if(F.type==="textarea") return `<label class="f">${esc(F.label)}</label><textarea data-keep="${id}">${val(id,prev[F.id])}</textarea>`;
+    return `<label class="f">${esc(F.label)}</label>${F.prefix?`<div class="small" style="margin-bottom:6px">${esc(F.prefix)}</div>`:""}<input type="text" data-keep="${id}" value="${val(id,prev[F.id])}">`;
+  }).join("");
+}
+function collect(s,C){
+  const S=stages()[s], out={}; const g=k=>{const e=document.querySelector(`[data-keep="${CSS.escape(k)}"]`);return e?e.value.trim():"";};
+  for(const F of arr(S.fields)){
+    const id=`s${s}_${F.id}`;
+    if(F.type==="list"){ const L=Array.from({length:F.n},(_,k)=>g(id+"_"+k)).filter(Boolean); if(L.length<F.min) return {err:`"${F.label}": isi sekurang-kurangnya ${F.min}.`}; out[F.id]=L; }
+    else if(F.type==="factcheck"){ const r=[]; for(let k=0;k<arr(C.statements).length;k++){ const e=document.querySelector(`input[name="${id}_${k}"]:checked`); if(!e) return {err:"Tandakan semua kenyataan sebagai Fakta atau Andaian."}; r.push(e.value);} out[F.id]=r; }
+    else if(F.type==="pick"){ const e=document.querySelector(`input[name="${id}"]:checked`); if(!e) return {err:`Pilih ${F.label.toLowerCase()}.`};
+      const src=arr(S.fields).find(x=>x.id===F.from); const txt=g(`s${s}_${src.id}_${e.value}`); if(!txt) return {err:"Idea yang dipilih masih kosong."}; out[F.id]=+e.value; out[F.id+"Text"]=txt; }
+    else { const v=g(id); if(v.length<3) return {err:`"${F.label}" masih kosong.`}; out[F.id]=v; }
+  }
+  return {out};
+}
+function answersHTML(s,ans,C){
+  const S=stages()[s]; if(!ans) return "";
+  return `<div class="ans">`+arr(S.fields).map(F=>{
+    const v=ans[F.id];
+    if(F.type==="list") return `<b>${esc(F.label)}</b><ol>${arr(v).map(x=>`<li>${esc(x)}</li>`).join("")}</ol>`;
+    if(F.type==="factcheck"){ let ok=0; const st=arr(C.statements);
+      const rows=st.map((x,k)=>{const a=arr(v)[k], r=a===x.t; if(r) ok++; return `<li>${esc(x.s)} → <b>${a==="F"?"Fakta":"Andaian"}</b> ${r?"✅":"❌"}</li>`;}).join("");
+      return `<b>${esc(F.label)}</b> <span class="tag ${ok===st.length?'win':'go'}">${ok}/${st.length} betul</span><ol>${rows}</ol>`; }
+    if(F.type==="pick") return `<b>${esc(F.label)}:</b> Idea ${(+v)+1}: <i>${esc(ans[F.id+"Text"])}</i><br><br>`;
+    return `<b>${esc(F.label)}</b><br>${F.prefix?esc(F.prefix)+" ":""}${esc(v)}<br><br>`;
+  }).join("")+`</div>`;
+}
+
+/* ---------- Team view ---------- */
+function team(){
+  const i=session.g, t=teams()[i], c=color(i), g=game(), SS=stages();
+  if(!t){ $("#app").innerHTML=`<div class="card login center"><p>Permainan belum disediakan oleh fasilitator.</p><button class="ghost" onclick="logout()">Log keluar</button></div>`; return; }
+  const C=cases()[t.caseIdx]||{}, code=arr(t.code);
+  const clues=vals(t.clues).reverse();
+  const clueBox=`<div class="card" style="margin-top:14px"><div class="row spread"><b>💡 Klu dari presenter</b>
+      ${t.status==="playing"&&g.state==="running"?(t.clueReq?`<span class="tag blue hand">🙋 Permintaan dihantar…</span>`:`<button class="sm" onclick="askClue()">🙋 Minta klu</button>`):""}</div>
+      ${clues.length?clues.map((x,k)=>`<div class="clue ${k===0&&Date.now()-(x.at-offset)<15000?'new':''}">${esc(x.text)}<div class="small">${x.stage!=null&&SS[x.stage]?esc(SS[x.stage].profile):""}</div></div>`).join(""):`<div class="small" style="margin-top:6px">Belum ada klu. Tekan "Minta klu" kalau kumpulan tersangkut.</div>`}</div>`;
+  const caseBox=`<div class="card case" style="margin-top:4px"><div class="small">KES ANDA</div><h2 class="ttl" style="font-size:28px;color:var(--gold);margin:2px 0 6px">${esc(C.title)}</h2><div>${esc(C.story)}</div></div>`;
+  let body="";
+  if(t.status==="escaped"){
+    const L=letterOf(i), prof=profileOf(t), fin=g.finalOpen;
+    body=`<div class="card center" style="margin-top:14px"><p class="big">🎉</p><h2 class="ttl" style="font-size:34px">Tahniah, ${esc(t.name)}!</h2>
+      <p>Anda keluar dalam <b class="mono">${fmt(t.finishSec)}</b> · ⭐ ${starsOf(t).reduce((a,b)=>a+b,0)} · ${points(t)} mata</p>
+      ${prof?`<p>Profil CPSP kumpulan anda: <b style="color:var(--gold)">${esc(prof)}</b></p>`:""}
+      <hr style="border-color:var(--line);margin:18px 0">
+      <h3>${fin?"🔓 Pintu Akhir sudah terbuka!":"🔐 Pintu Akhir Bersama"}</h3>
+      <p class="small">Huruf rahsia kumpulan anda:</p>
+      <div class="letters"><span style="background:${c}">${esc(L)}</span></div>
+      ${fin?`<p style="color:var(--ok);font-weight:800">Kata kunci: ${esc(cfg().finalWord)}. SEMUA BERJAYA!</p>`:`
+      <p>Gabungkan huruf anda dengan kumpulan lain. Bila dah dapat kata kuncinya, taip di sini:</p>
+      <form class="row" style="justify-content:center" onsubmit="event.preventDefault();tryFinal()"><input type="text" id="fw" data-keep="fw" style="max-width:260px;text-align:center;text-transform:uppercase" placeholder="KATA KUNCI"><button class="pri">Buka</button></form>
+      <div class="msg" id="msg"></div>`}</div>`;
+  } else if(t.status==="timeout"||g.state==="ended"){
+    body=`<div class="card center" style="margin-top:14px"><p class="big">⌛</p><h2>Permainan tamat</h2><p>${esc(t.name)} melepasi ${t.stage}/${NS} bilik · ${points(t)} mata</p>${profileOf(t)?`<p>Profil CPSP: <b>${esc(profileOf(t))}</b></p>`:""}</div>`;
+  } else if(g.state==="waiting"){
+    body=`<div class="card center" style="margin-top:14px"><p class="big">⏳</p><h2>Tunggu isyarat fasilitator…</h2><p class="small">Sementara menunggu: agihkan peranan Ketua, Pencatat, Penganalisis dan Penjaga Masa.</p></div>`;
+  } else if(t.stage>=NS){
+    body=`<div class="card center" style="margin-top:14px"><h2 class="ttl" style="font-size:30px">🔐 Pintu Keluar</h2>
+      <p>Masukkan kod ${NS} digit yang anda kumpul (ikut urutan bilik).</p>
+      <div class="dial" id="dial">${code.map((_,k)=>`<input type="text" inputmode="numeric" maxlength="1" data-keep="d${k}">`).join("")}</div>
+      <div class="msg" id="msg"></div><button class="pri" style="margin-top:10px" onclick="tryCode()">Buka pintu</button></div>`+clueBox;
+  } else {
+    const s=t.stage, S=SS[s], rv=(t.review||{})["s"+s], sub=(t.sub||{})["s"+s];
+    let inner="";
+    if(rv&&rv.state==="pending"){
+      inner=`<div class="center" style="padding:10px 0"><p class="big" style="font-size:44px">⏳</p><h3>Jawapan dihantar! Menunggu semakan presenter…</h3><p style="color:var(--ok);font-weight:700">⏸ Masa anda DIHENTIKAN sementara menunggu. Tiada masa terbuang.</p><p class="small">Sementara menunggu, bincang strategi untuk bilik seterusnya.</p></div>
+        <details class="review"><summary class="small">Lihat jawapan yang dihantar</summary>${answersHTML(s,sub,C)}</details>`;
+    } else {
+      inner=(rv&&rv.state==="rejected"?`<div class="review" style="border-left:3px solid var(--bad)"><b style="color:var(--bad)">❌ Presenter minta perbaiki:</b><div>${esc(rv.comment||"Cuba lagi, lebih kreatif!")}</div></div>`:"")+
+        `<div id="form" oninput="saveDraft(${s})" onchange="saveDraft(${s})">${fieldsHTML(s,C,sub)}</div>
+         <div class="msg" id="msg"></div>
+         <button class="pri" style="width:100%;margin-top:8px" onclick="submitStage()">Hantar kepada presenter ✉️</button>`;
+    }
+    body=`<div class="card" id="qcard" style="margin-top:14px;--c:${c}">
+      <div class="small mono">BILIK ${s+1} / ${NS} · ${esc(S.room)}</div>
+      <h2 class="ttl" style="font-size:30px;margin:4px 0">${S.icon} ${esc(S.profile)}</h2>
+      <p style="line-height:1.5">${esc(S.task)}</p>${inner}</div>`+clueBox;
+  }
+  $("#app").innerHTML=`
+    <header><div class="row"><span id="conn" class="dot${connected?" on":""}"></span><h2 class="ttl" style="color:${c};font-size:26px">${esc(t.name)}</h2></div>
+    <div class="row"><div class="timer" data-time="${i}">${fmt(remaining(t))}</div><button class="ghost sm" onclick="logout()">Keluar</button></div></header>
+    ${stageChips(t,i)}
+    <div class="code">${code.map((d,k)=>`<span class="${k<t.stage?'got':''}">${k<t.stage?d:''}</span>`).join("")}</div>
+    ${t.status==="playing"?caseBox:""}${body}`;
+  const dial=$("#dial");
+  if(dial){ const ins=[...dial.querySelectorAll("input")];
+    ins.forEach((el,k)=>{ el.addEventListener("input",()=>{el.value=el.value.replace(/\D/g,"");if(el.value&&ins[k+1])ins[k+1].focus();});
+      el.addEventListener("keydown",e=>{if(e.key==="Backspace"&&!el.value&&ins[k-1])ins[k-1].focus();if(e.key==="Enter")tryCode();}); }); }
+}
+function myTeam(){ return teams()[session.g]; }
+function canPlay(){ const t=myTeam(),g=game(); return t&&t.status==="playing"&&g.state==="running"&&now()>=g.startAt; }
+function shake(sel){ const q=$(sel); if(q){q.classList.remove("shake");void q.offsetWidth;q.classList.add("shake");} }
+function setMsg(cls,txt){ const m=$("#msg"); if(m){m.className="msg "+cls; m.textContent=txt;} }
+function submitStage(){
+  if(!canPlay()) return setMsg("bad","Permainan belum bermula atau sedang dijeda.");
+  const t=myTeam(), s=t.stage, C=cases()[t.caseIdx];
+  const r=collect(s,C); if(r.err){ setMsg("bad","⚠️ "+r.err); shake("#qcard"); return; }
+  upd(session.g,{["sub/s"+s]:r.out,["review/s"+s]:{state:"pending",at:now()},pendingAt:now(),pendingPT:game().pausedTotal||0}).then(()=>beep(880,.08));
+}
+function askClue(){ if(!canPlay()) return; upd(session.g,{clueReq:true}); }
+function tryCode(){
+  if(!canPlay()) return; const t=myTeam();
+  const v=[...document.querySelectorAll("#dial input")].map(e=>e.value).join("");
+  if(v===arr(t.code).join("")){ upd(session.g,{status:"escaped",finishSec:Math.round(teamTime(t))}); beep(1200,.15,3); }
+  else { setMsg("bad","❌ Kod salah! Semak urutan digit bilik."); shake("#dial"); }
+}
+function tryFinal(){
+  const v=norm($("#fw").value);
+  if(v===norm(cfg().finalWord)){ ROOT.child("game").update({finalOpen:true}); }
+  else { setMsg("bad","❌ Belum tepat. Kumpul huruf dari semua kumpulan!"); shake("#fw"); }
+}
+
+/* ---------- Admin ---------- */
+function pendingList(){ return teams().map((t,i)=>({t,i})).filter(({t})=>t.status==="playing"&&t.stage<NS&&((t.review||{})["s"+t.stage]||{}).state==="pending"); }
+function admin(){
+  const g=game(), T=teams(), SS=stages(), P=pendingList();
+  const ctrl={
+    waiting:`<button class="pri" onclick="startAll()">▶ Mula serentak</button>`,
+    running:`<button onclick="pauseAll()">⏸ Jeda</button><button class="red" onclick="ask('Tamatkan permainan untuk semua kumpulan?','endAll()')">⏹ Tamat</button>`,
+    paused:`<button class="pri" onclick="resumeAll()">▶ Sambung</button><button class="red" onclick="ask('Tamatkan permainan untuk semua kumpulan?','endAll()')">⏹ Tamat</button>`,
+    ended:``}[g.state]||"";
+  let body="";
+  if(tab==="dash"){
+    const wk=g.wakil;
+    body=`<div class="card" style="margin-top:14px"><div class="row spread">
+      <div><div class="small">Status</div><b style="font-size:19px">${{waiting:"Menunggu",running:"Sedang berjalan",paused:"Dijeda",ended:"Tamat"}[g.state]}</b></div>
+      <div class="center"><div class="small">Masa berlalu</div><div class="timer" data-gtime>${fmt(gameElapsed())}</div></div>
+      <div class="row">${ctrl}<button class="ghost" onclick="ask('Reset SEMUA kumpulan? Jawapan & kemajuan dipadam.','resetAll()')">🔄 Reset</button></div></div>
+      <div class="row" style="margin-top:12px">
+        <input type="text" id="wkmsg" data-keep="wkmsg" placeholder="Hantar SATU wakil ke depan sekarang!" style="flex:1;min-width:200px">
+        <button class="pri" onclick="callWakil()">📣 Panggil wakil</button>
+        ${wk?`<button class="ghost" onclick="ROOT.child('game/wakil').remove()">✖ Tamatkan panggilan</button>`:""}
+        ${g.finalOpen?`<span class="tag win">Pintu Akhir terbuka</span>`:`<button class="ghost" onclick="ask('Buka Pintu Akhir untuk semua kumpulan sekarang?','openFinal()')">🔓 Buka Pintu Akhir</button>`}
+      </div></div>
+    <div class="grid">${T.map((t,i)=>{ const C=cases()[t.caseIdx]||{}, S=SS[t.stage], rv=(t.review||{})["s"+t.stage]||{};
+      const pend=rv.state==="pending"&&t.status==="playing";
+      return `<div class="card" style="--c:${color(i)}"><div class="stripe"></div>
+        <div class="row spread"><h3 style="color:${color(i)}">${esc(t.name)}</h3><div class="row">${t.clueReq?'<span class="tag blue hand">🙋 Minta klu</span>':''}${pend?'<span class="tag go">📥 Disemak · ⏸ jam henti</span>':''}${badge(t)}</div></div>
+        <div class="small" style="margin:4px 0">Kes: <b>${esc(C.title)}</b> · KL: <span class="mono">${esc(GROUPS[i]?.password)}</span> · Kod: <span class="mono">${arr(t.code).join("")}</span> · Huruf: <b>${esc(letterOf(i))}</b></div>
+        ${stageChips(t,i)}
+        <div class="row spread"><span>${S?`${S.icon} ${esc(S.profile)}`:"🔐 Pintu keluar"}</span><span class="mono" data-time="${i}">${fmt(remaining(t))}</span></div>
+        <div class="small" style="margin:6px 0 10px">⭐ ${starsOf(t).join(" / ")} · <b>${points(t)} mata</b>${t.bonusPts?` · bonus ${t.bonusPts}`:""}${t.bonus?` · +${t.bonus}s masa`:""}</div>
+        ${pend?`<button class="pri sm" style="width:100%;margin-bottom:8px" onclick="tab='rev';maybeRender(true)">📥 Semak jawapan sekarang</button>`:""}
+        ${t.status==="playing"?`<div class="col">
+          <select data-keep="cs${i}" id="cs${i}"><option value="">— Pilih klu siap (${S?esc(S.profile):"Pintu"}) —</option>${S?arr(S.clues).map(x=>`<option>${esc(x)}</option>`).join(""):`<option>Kod disusun ikut urutan bilik 1 → ${NS}.</option>`}</select>
+          <div class="row"><input type="text" data-keep="ct${i}" id="ct${i}" placeholder="…atau taip klu sendiri" style="flex:1"><button class="sm pri" onclick="sendClue(${i})">💡 Hantar</button></div></div>`:""}
+        <div class="row" style="margin-top:10px"><button class="sm" onclick="addPts(${i},10)">🏅 +10 mata</button><button class="sm" onclick="addTime(${i},60)">+1 min</button><button class="sm" onclick="addTime(${i},-60)">−1 min</button><button class="sm ghost" onclick="ask('Reset ${esc(t.name)}?','resetTeam(${i})')">Reset</button></div>
+      </div>`;}).join("")}</div>`;
+  } else if(tab==="rev"){
+    body=P.length?P.map(({t,i})=>{ const s=t.stage, C=cases()[t.caseIdx]||{}, S=SS[s];
+      return `<div class="card" style="--c:${color(i)};margin-top:14px"><div class="stripe"></div>
+        <div class="row spread"><h3 style="color:${color(i)}">${esc(t.name)} · ${S.icon} ${esc(S.profile)}</h3><span class="small">Kes: ${esc(C.title)}</span></div>
+        <div class="review">${answersHTML(s,(t.sub||{})["s"+s],C)}</div>
+        <div class="row spread" style="margin-top:12px">
+          <div class="row"><span class="small">Kreativiti:</span><div class="stars" id="st${i}">${[1,2,3,4,5].map(n=>`<label><input type="radio" name="st${i}" value="${n}" data-keep="st${i}_${n}" ${n===3?'checked':''} onchange="paintStars(${i})"><span>⭐</span></label>`).join("")}</div></div>
+          <button class="ok" onclick="approve(${i})">✅ Lulus</button></div>
+        <div class="row" style="margin-top:8px"><input type="text" data-keep="rc${i}" id="rc${i}" placeholder="Komen untuk diperbaiki (cth: Idea masih terlalu umum)" style="flex:1"><button class="red" onclick="reject(${i})">❌ Perbaiki</button></div>
+      </div>`;}).join(""):`<div class="card center" style="margin-top:14px"><p class="big">📭</p><p>Tiada jawapan menunggu semakan.</p></div>`;
+  } else if(tab==="cfg"){
+    body=`<div class="card" style="margin-top:14px"><h3>Tetapan (JSON)</h3>
+      <p class="small">Edit <b>cases</b> (kes setiap kumpulan + kenyataan Fakta "F" / Andaian "A"), <b>stages</b> (tugasan & klu siap), <b>timeLimitMin</b>, <b>cluePenaltySec</b> (0 = klu percuma), <b>finalWord</b> (1 huruf setiap kumpulan). <b>Simpan akan reset semua kumpulan.</b></p>
+      <textarea class="json" id="cfg">${esc(JSON.stringify(cfg(),null,2))}</textarea><div class="msg" id="msg"></div>
+      <div class="row"><button class="pri" onclick="saveCfg()">Simpan & reset</button><button class="ghost" onclick="$('#cfg').value=JSON.stringify(DEFAULT_CONFIG,null,2)">Pulih tetapan asal</button></div></div>`;
+  } else body=boardHTML();
+  $("#app").innerHTML=`<header><div class="row"><span id="conn" class="dot${connected?" on":""}"></span><h1 class="ttl" style="font-size:30px">🛡️ Presenter</h1></div><button class="ghost sm" onclick="logout()">Log keluar</button></header>
+    <div class="tabs">${[["dash","📊 Dashboard"],["rev",`📥 Semakan${P.length?` (${P.length})`:""}`],["board","🏆 Papan"],["cfg","⚙️ Tetapan"]].map(([k,l])=>`<button class="${tab===k?'on':''} ${k==='rev'&&P.length?'hand':''}" onclick="tab='${k}';maybeRender(true)">${l}</button>`).join("")}</div>${body}`;
+  P.forEach(({i})=>paintStars(i));
+}
+function paintStars(i){ const box=$("#st"+i); if(!box) return; const v=+(box.querySelector("input:checked")||{}).value||0;
+  box.querySelectorAll("label").forEach((l,k)=>l.classList.toggle("on",k<v)); }
+function startAll(){ ROOT.child("game").set({state:"running",startAt:now()+3500,pausedTotal:0}); }
+function pauseAll(){ ROOT.child("game").update({state:"paused",pausedAt:now()}); }
+function resumeAll(){ const g=game(); ROOT.child("game").update({state:"running",pausedTotal:(g.pausedTotal||0)+(now()-g.pausedAt),pausedAt:null}); }
+function endAll(){ ROOT.child("game").update({state:"ended",endedAt:now()}); closeModal(); }
+function resetAll(){ ROOT.update({teams:makeTeams(),game:{state:"waiting"}}); closeModal(); }
+function resetTeam(i){ ROOT.child("teams/"+i).set(makeTeams()[i]); closeModal(); }
+function openFinal(){ ROOT.child("game").update({finalOpen:true}); closeModal(); }
+function callWakil(){ const m=($("#wkmsg").value||"").trim()||"Hantar SATU wakil ke depan sekarang!"; ROOT.child("game/wakil").set({msg:m,at:now()}); $("#wkmsg").value=""; }
+function addPts(i,n){ const t=teams()[i]; upd(i,{bonusPts:(t.bonusPts||0)+n}); }
+function addTime(i,s){ const t=teams()[i]; const o={bonus:(t.bonus||0)+s}; if(t.status==="timeout"&&remaining({...t,bonus:o.bonus,finishSec:null})>0){o.status="playing";o.finishSec=null;} upd(i,o); }
+function sendClue(i){
+  const t=teams()[i]; const txt=($("#ct"+i).value||"").trim()||$("#cs"+i).value;
+  if(!txt) return alertMsg("Pilih atau taip klu dulu.");
+  ROOT.child(`teams/${i}/clues`).push({text:txt,at:now(),stage:t.stage});
+  const o={clueReq:false}; const pen=+cfg().cluePenaltySec||0; if(pen) o.penalty=(t.penalty||0)+pen;
+  upd(i,o); $("#ct"+i).value=""; $("#cs"+i).value="";
+}
+function approve(i){
+  const t=teams()[i], s=t.stage; const st=+(document.querySelector(`input[name="st${i}"]:checked`)||{}).value||3;
+  upd(i,{["review/s"+s]:{state:"approved",stars:st,at:now()},["stars/s"+s]:st,stage:s+1,waitSec:(t.waitSec||0)+pendWait(t),pendingAt:null,pendingPT:null});
+}
+function reject(i){
+  const t=teams()[i], s=t.stage; const c=($("#rc"+i).value||"").trim()||"Cuba lagi. Lebih spesifik dan kreatif!";
+  upd(i,{["review/s"+s]:{state:"rejected",comment:c,at:now()},waitSec:(t.waitSec||0)+pendWait(t),pendingAt:null,pendingPT:null});
+}
+function saveCfg(){
+  try{
+    const c=JSON.parse($("#cfg").value);
+    if(!Array.isArray(c.stages)||c.stages.length!==NS) throw `stages mesti ada tepat ${NS} bilik`;
+    if(!Array.isArray(c.cases)||!c.cases.length) throw "cases mesti ada sekurang-kurangnya 1 kes";
+    c.cases.forEach((k,n)=>{ if(!k.title||!k.story) throw `Kes ${n+1}: perlu title & story`; if(!Array.isArray(k.statements)) throw `Kes ${n+1}: perlu statements`; });
+    c.timeLimitMin=+c.timeLimitMin||45; c.cluePenaltySec=+c.cluePenaltySec||0; c.finalWord=String(c.finalWord||"IKATAN").toUpperCase();
+    D.config=c;
+    ROOT.update({config:c,teams:makeTeams(),game:{state:"waiting"}}).then(()=>setMsg("ok","✅ Disimpan. Semua kumpulan direset."));
+  }catch(e){ setMsg("bad","❌ "+(e.message||e)); }
+}
+
+/* ---------- Board ---------- */
+function boardHTML(){
+  const g=game(), w=String(cfg().finalWord||"").toUpperCase();
+  return `<div class="card" style="margin-top:14px"><h2 class="ttl" style="font-size:30px">🏆 Papan Kedudukan</h2>
+  <table class="board"><tr><th>#</th><th>Kumpulan</th><th>Bilik</th><th>⭐</th><th>Mata</th><th>Masa</th><th>Status</th></tr>
+  ${rank().map((r,k)=>`<tr><td>${k+1}</td><td style="color:${color(r.i)};font-weight:800">${esc(r.t.name)}<div class="small">${esc((cases()[r.t.caseIdx]||{}).title)}</div></td><td>${Math.min(r.t.stage,NS)}/${NS}</td><td>${starsOf(r.t).reduce((a,b)=>a+b,0)}</td><td><b>${points(r.t)}</b></td><td class="mono" data-used="${r.i}">${fmt(teamTime(r.t))}</td><td>${badge(r.t)}${profileOf(r.t)?`<div class="small">${esc(profileOf(r.t))}</div>`:""}</td></tr>`).join("")}
+  </table>
+  <p class="small">Mata = ⭐×10 + bilik lulus×20 + keluar 30 + baki minit×2 + bonus wakil</p></div>
+  <div class="card center" style="margin-top:14px"><h3>${g.finalOpen?"🔓 PINTU AKHIR TERBUKA — SEMUA BERJAYA!":"🔐 Pintu Akhir Bersama"}</h3>
+   <div class="letters">${teams().map((t,i)=>`<span style="background:${t.status==="escaped"||g.finalOpen?color(i):"#2c271f"};color:${t.status==="escaped"||g.finalOpen?"#1a1408":"var(--dim)"}">${g.finalOpen?esc(w[i%w.length]):(t.status==="escaped"?"✓":"?")}</span>`).join("")}</div></div>`;
+}
+function board(){
+  $("#app").innerHTML=`<header><h1 class="ttl" style="font-size:34px;color:var(--gold)">🔐 ${esc(cfg().title)}</h1><div class="row"><div class="timer" data-gtime>${fmt(gameElapsed())}</div><button class="ghost sm" onclick="logout()">←</button></div></header>${boardHTML()}`;
+}
+
+/* ---------- Ticker ---------- */
+setInterval(()=>{
+  const g=game();
+  document.querySelectorAll("[data-time]").forEach(el=>{const t=teams()[+el.dataset.time]; if(!t) return; const r=remaining(t); el.textContent=fmt(r); el.classList.toggle("low",r<120&&t.status==="playing"&&g.state==="running");});
+  document.querySelectorAll("[data-used]").forEach(el=>{const t=teams()[+el.dataset.used]; if(t) el.textContent=fmt(teamTime(t));});
+  document.querySelectorAll("[data-gtime]").forEach(el=>el.textContent=fmt(gameElapsed()));
+  let ov="";
+  if(session&&g.state==="running"&&g.startAt&&now()<g.startAt) ov=`<div class="overlay"><div><div class="small">BERSEDIA…</div><div class="n">${Math.ceil((g.startAt-now())/1000)}</div></div></div>`;
+  else if(session&&session.role==="team"&&g.state==="paused") ov=`<div class="overlay"><div><p class="big">⏸</p><h2>Permainan dijeda oleh fasilitator</h2></div></div>`;
+  else if(session&&session.role!=="admin"&&g.finalOpen&&!seen.final) ov=`<div class="overlay" onclick="seen.final=true"><div><p class="big">🎉🔓🎉</p><h1 class="ttl" style="font-size:60px;color:var(--gold)">PINTU AKHIR TERBUKA!</h1><h2>Kata kunci: ${esc(cfg().finalWord)} · SEMUA BERJAYA BERSAMA</h2><p class="small">(ketik untuk tutup)</p></div></div>`;
+  if($("#ov").innerHTML!==ov) $("#ov").innerHTML=ov;
+  const wk=g.wakil, bn=(session&&session.role!=="admin"&&wk&&now()-wk.at<60000)?`<div class="banner">📣 ${esc(wk.msg)}</div>`:"";
+  if($("#bn").innerHTML!==bn) $("#bn").innerHTML=bn; document.body.classList.toggle("hasbn",!!bn);
+  if(session&&g.state==="running"){
+    const ids=session.role==="team"?[session.g]:session.role==="admin"?teams().map((_,i)=>i):[];
+    ids.forEach(i=>{const t=teams()[i]; if(t&&t.status==="playing"&&remaining(t)<=0) upd(i,{status:"timeout",finishSec:Math.round(teamTime(t))});});
+  }
+},250);
+
+/* ---------- Modal ---------- */
+function ask(text,action){ $("#modalBox").innerHTML=`<p style="margin-top:0">${text}</p><div class="row" style="justify-content:flex-end"><button class="ghost" onclick="closeModal()">Batal</button><button class="pri" onclick="${action}">Ya</button></div>`; $("#modal").classList.remove("hidden"); }
+function alertMsg(text){ $("#modalBox").innerHTML=`<p style="margin-top:0">${text}</p><div class="row" style="justify-content:flex-end"><button class="pri" onclick="closeModal()">OK</button></div>`; $("#modal").classList.remove("hidden"); }
+function closeModal(){ $("#modal").classList.add("hidden"); }
+
+/* ---------- Start listening ---------- */
+db.ref(".info/serverTimeOffset").on("value",s=>{offset=s.val()||0;});
+db.ref(".info/connected").on("value",s=>{connected=!!s.val();const d=$("#conn");if(d)d.className="dot"+(connected?" on":"");});
+ROOT.on("value",s=>{D=s.val()||{};maybeRender();},e=>{$("#app").innerHTML=`<div class="card login"><h3>❌ Tak dapat sambung ke database</h3><p class="small">${esc(e.message)}</p><p class="small">Semak Rules Realtime Database (".read": true, ".write": true).</p></div>`;});
+</script>
+</body>
+</html>
